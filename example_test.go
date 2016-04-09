@@ -97,3 +97,24 @@ func ExampleNewJSON_options() {
 	// {"msg":"This is a debug log.","level":"debug","ts":0,"fields":{"count":1}}
 	// {"msg":"This is an info log.","level":"info","ts":0,"fields":{"count":1}}
 }
+
+func ExampleStandardize() {
+	zapLogger := zap.NewJSON()
+	// Stub the current time in tests.
+	zapLogger.StubTime()
+
+	// Wrap our structured logger to mimic the standard library's log.Logger.
+	// We also specify that we want all calls to the standard logger's Print
+	// family of methods to log at zap's Warn level.
+	stdLogger, err := zap.Standardize(zapLogger, zap.Warn)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// The wrapped logger has the usual Print, Panic, and Fatal families of
+	// methods.
+	stdLogger.Printf("Encountered %d errors.", 0)
+
+	// Output:
+	// {"msg":"Encountered 0 errors.","level":"warn","ts":0,"fields":{}}
+}
