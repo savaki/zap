@@ -18,34 +18,36 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap
+package rap
 
 import (
 	"bytes"
 	"fmt"
 	"testing"
 
+	"github.com/uber-common/zap"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func newStd(lvl Level) (StandardLogger, *bytes.Buffer, error) {
+func newStd(lvl zap.Level) (StandardLogger, *bytes.Buffer, error) {
 	buf := &bytes.Buffer{}
 	// TODO: Update once WriteSyncer lands.
-	logger := NewJSON(All, Output(buf))
+	logger := zap.NewJSON(zap.All, zap.Output(buf))
 	std, err := Standardize(logger, lvl)
 	return std, buf, err
 }
 
 func TestStandardizeInvalidLevels(t *testing.T) {
-	for _, level := range []Level{All, Panic, Fatal, None, Level(42)} {
+	for _, level := range []zap.Level{zap.All, zap.Panic, zap.Fatal, zap.None, zap.Level(42)} {
 		_, _, err := newStd(level)
 		assert.Equal(t, ErrInvalidLevel, err, "Expected ErrInvalidLevel when passing an invalid level to Standardize.")
 	}
 }
 
 func TestStandardizeValidLevels(t *testing.T) {
-	for _, level := range []Level{Debug, Info, Warn, Error} {
+	for _, level := range []zap.Level{zap.Debug, zap.Info, zap.Warn, zap.Error} {
 		std, buf, err := newStd(level)
 		require.NoError(t, err, "Unexpected error calling Standardize with a valid level.")
 		std.Print("foo")
@@ -56,7 +58,7 @@ func TestStandardizeValidLevels(t *testing.T) {
 }
 
 func TestStandardLoggerPrint(t *testing.T) {
-	std, buf, err := newStd(Info)
+	std, buf, err := newStd(zap.Info)
 	require.NoError(t, err, "Unexpected error standardizing a Logger.")
 
 	verify := func() {
@@ -75,7 +77,7 @@ func TestStandardLoggerPrint(t *testing.T) {
 }
 
 func TestStandardLoggerPanic(t *testing.T) {
-	std, buf, err := newStd(Info)
+	std, buf, err := newStd(zap.Info)
 	require.NoError(t, err, "Unexpected error standardizing a Logger.")
 
 	verify := func(f func()) {
@@ -98,7 +100,7 @@ func TestStandardLoggerPanic(t *testing.T) {
 }
 
 func TestStandardLoggerFatal(t *testing.T) {
-	std, buf, err := newStd(Info)
+	std, buf, err := newStd(zap.Info)
 	require.NoError(t, err, "Unexpected error standardizing a Logger.")
 
 	// Don't actually call os.Exit.

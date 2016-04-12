@@ -18,11 +18,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap
+package rap
 
 import (
 	"errors"
 	"fmt"
+
+	"github.com/uber-common/zap"
 )
 
 // ErrInvalidLevel indicates that the user chose an invalid Level when
@@ -48,19 +50,19 @@ type StandardLogger interface {
 // It takes the Logger itself, and the level to use for the StandardLogger's
 // Print family of methods. If the specified Level isn't Debug, Info, Warn, or
 // Error, Standardize returns ErrInvalidLevel.
-func Standardize(l Logger, printAt Level) (StandardLogger, error) {
+func Standardize(l zap.Logger, printAt zap.Level) (StandardLogger, error) {
 	s := stdLogger{
 		panic: l.Panic,
 		fatal: l.Fatal,
 	}
 	switch printAt {
-	case Debug:
+	case zap.Debug:
 		s.write = l.Debug
-	case Info:
+	case zap.Info:
 		s.write = l.Info
-	case Warn:
+	case zap.Warn:
 		s.write = l.Warn
-	case Error:
+	case zap.Error:
 		s.write = l.Error
 	default:
 		return nil, ErrInvalidLevel
@@ -69,9 +71,9 @@ func Standardize(l Logger, printAt Level) (StandardLogger, error) {
 }
 
 type stdLogger struct {
-	write func(string, ...Field)
-	panic func(string, ...Field)
-	fatal func(string, ...Field)
+	write func(string, ...zap.Field)
+	panic func(string, ...zap.Field)
+	fatal func(string, ...zap.Field)
 }
 
 func (s *stdLogger) Print(args ...interface{}) {

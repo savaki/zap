@@ -18,38 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap_test
-
-import (
-	"fmt"
-	"io/ioutil"
-	"testing"
-
-	"github.com/uber-common/zap"
-)
-
-func withBenchedStandard(b *testing.B, f func(zap.StandardLogger)) {
-	logger := zap.NewJSON(zap.All, zap.Output(ioutil.Discard))
-	std, err := zap.Standardize(logger, zap.Info)
-	if err != nil {
-		panic(fmt.Sprint("Unexpected error creating a StandardLogger: ", err.Error()))
-	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			f(std)
-		}
-	})
-}
-
-func BenchmarkStandardPrint(b *testing.B) {
-	withBenchedStandard(b, func(std zap.StandardLogger) {
-		std.Print("foo ", "bar ", 42, -42.0, true)
-	})
-}
-
-func BenchmarkStandardPrintf(b *testing.B) {
-	withBenchedStandard(b, func(std zap.StandardLogger) {
-		std.Printf("%s the %s with %v, %v, and %v.", "foo ", "bar ", 42, -42.0, true)
-	})
-}
+// Package rap provides wrappers to make zap compatible with other logging
+// libraries.
+package rap
