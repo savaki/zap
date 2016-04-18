@@ -60,3 +60,10 @@ func ErrorOutput(w WriteSyncer) Option {
 		return nil
 	})
 }
+
+func Append(appendFunc AppendFunc) Option {
+	return optionFunc(func(jl *jsonLogger) error {
+		jl.appendFunc = appendFunc
+		return nil
+	})
+}

@@ -26,3 +26,9 @@ _testmain.go
 *.pprof
 *.out
 *.log
+
+# ignore intellij files
+.idea
+*.iml
+*.ipr
+*.iws
