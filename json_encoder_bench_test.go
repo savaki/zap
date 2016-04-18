@@ -47,7 +47,7 @@ func BenchmarkZapJSON(b *testing.B) {
 			enc.AddString("string3", "🤔")
 			enc.AddString("string4", "🙊")
 			enc.AddBool("bool", true)
-			enc.WriteMessage(ioutil.Discard, "debug", "fake", time.Unix(0, 0))
+			enc.WriteMessage(ioutil.Discard, "debug", "fake", time.Unix(0, 0), defaultAppendFunc)
 			enc.Free()
 		}
 	})

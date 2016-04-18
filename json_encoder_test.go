@@ -108,7 +108,7 @@ func TestJSONWriteMessage(t *testing.T) {
 		sink := bytes.NewBuffer(nil)
 
 		// Messages should be escaped.
-		err := enc.WriteMessage(sink, "info", `hello\`, time.Unix(0, 0))
+		err := enc.WriteMessage(sink, "info", `hello\`, time.Unix(0, 0), defaultAppendFunc)
 		assert.NoError(t, err, "WriteMessage returned an unexpected error.")
 		assert.Equal(t,
 			`{"msg":"hello\\","level":"info","ts":0,"fields":{"foo":"bar"}}`,
@@ -118,7 +118,7 @@ func TestJSONWriteMessage(t *testing.T) {
 		// We should be able to re-use the encoder, preserving the accumulated
 		// fields.
 		sink.Reset()
-		err = enc.WriteMessage(sink, "debug", "fake msg", time.Unix(0, 100))
+		err = enc.WriteMessage(sink, "debug", "fake msg", time.Unix(0, 100), defaultAppendFunc)
 		assert.NoError(t, err, "WriteMessage returned an unexpected error.")
 		assert.Equal(t,
 			`{"msg":"fake msg","level":"debug","ts":100,"fields":{"foo":"bar"}}`,
@@ -161,7 +161,7 @@ func TestJSONWriteMessageFailure(t *testing.T) {
 			{spy.ShortWriter{}, "Expected an error on partial writes to sink."},
 		}
 		for _, tt := range tests {
-			err := enc.WriteMessage(tt.sink, "info", "hello", time.Unix(0, 0))
+			err := enc.WriteMessage(tt.sink, "info", "hello", time.Unix(0, 0), defaultAppendFunc)
 			assert.Error(t, err, tt.msg)
 		}
 	})

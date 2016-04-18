@@ -23,6 +23,7 @@ package zap
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -62,6 +63,14 @@ type jsonLogger struct {
 	errW        WriteSyncer
 	w           WriteSyncer
 	alwaysEpoch bool
+	appendFunc  AppendFunc
+}
+
+type AppendFunc func(data []byte, t time.Time) []byte
+
+func defaultAppendFunc(data []byte, ts time.Time) []byte {
+	data = append(data, `,"ts":`...)
+	return strconv.AppendInt(data, ts.UnixNano(), 10)
 }
 
 // NewJSON returns a logger that formats its output as JSON. Zap uses a
@@ -75,10 +84,11 @@ type jsonLogger struct {
 func NewJSON(options ...Option) Logger {
 	defaultLevel := int32(Info)
 	jl := &jsonLogger{
-		enc:   newJSONEncoder(),
-		level: &defaultLevel,
-		errW:  os.Stderr,
-		w:     os.Stdout,
+		enc:        newJSONEncoder(),
+		level:      &defaultLevel,
+		errW:       os.Stderr,
+		w:          os.Stdout,
+		appendFunc: defaultAppendFunc,
 	}
 
 	for _, opt := range options {
@@ -113,6 +123,7 @@ func (jl *jsonLogger) With(fields ...Field) Logger {
 		w:           jl.w,
 		errW:        jl.errW,
 		alwaysEpoch: jl.alwaysEpoch,
+		appendFunc:  jl.appendFunc,
 	}
 	if err := clone.enc.AddFields(fields); err != nil {
 		jl.internalError(err.Error())
@@ -172,7 +183,7 @@ func (jl *jsonLogger) log(lvl Level, msg string, fields []Field) {
 	if jl.alwaysEpoch {
 		now = time.Unix(0, 0)
 	}
-	if err := temp.WriteMessage(jl.w, lvl.String(), msg, now); err != nil {
+	if err := temp.WriteMessage(jl.w, lvl.String(), msg, now, jl.appendFunc); err != nil {
 		jl.internalError(err.Error())
 	}
 	temp.Free()

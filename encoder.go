@@ -32,5 +32,5 @@ type encoder interface {
 	AddFields([]Field) error
 	Clone() encoder
 	Free()
-	WriteMessage(io.Writer, string, string, time.Time) error
+	WriteMessage(io.Writer, string, string, time.Time, AppendFunc) error
 }

@@ -137,7 +137,7 @@ func (enc *jsonEncoder) AddFields(fields []Field) error {
 // the encoder's accumulated fields. It doesn't modify or lock the encoder's
 // underlying byte slice. It's safe to call from multiple goroutines, but it's
 // not safe to call CreateMessage while adding fields.
-func (enc *jsonEncoder) WriteMessage(sink io.Writer, lvl string, msg string, ts time.Time) error {
+func (enc *jsonEncoder) WriteMessage(sink io.Writer, lvl string, msg string, ts time.Time, appendFunc AppendFunc) error {
 	// Grab an encoder from the pool so that we can re-use the underlying
 	// buffer.
 	final := newJSONEncoder()
@@ -147,8 +147,10 @@ func (enc *jsonEncoder) WriteMessage(sink io.Writer, lvl string, msg string, ts 
 	final.safeAddString(msg)
 	final.bytes = append(final.bytes, `","level":"`...)
 	final.bytes = append(final.bytes, lvl...)
-	final.bytes = append(final.bytes, `","ts":`...)
-	final.bytes = strconv.AppendInt(final.bytes, ts.UnixNano(), 10)
+	final.bytes = append(final.bytes, `"`...)
+
+	final.bytes = appendFunc(final.bytes, ts)
+
 	final.bytes = append(final.bytes, `,"fields":{`...)
 	final.bytes = append(final.bytes, enc.bytes...)
 	final.bytes = append(final.bytes, "}}\n"...)
