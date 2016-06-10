@@ -18,55 +18,49 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap_test
+package zwrap_test
 
 import (
 	"time"
 
 	"github.com/uber-go/zap"
+	"github.com/uber-go/zap/zwrap"
 )
 
-type Auth struct {
-	ExpiresAt time.Time `json:"expires_at"`
-	// Since we'll need to send the token to the browser, we include it in the
-	// struct's JSON representation.
-	Token string `json:"token"`
-}
+func Example_standardize() {
+	zapLogger := zap.NewJSON()
+	// Stub the current time in tests.
+	zapLogger.StubTime()
 
-func (a Auth) MarshalLog(kv zap.KeyValue) error {
-	kv.AddInt64("expires_at", a.ExpiresAt.UnixNano())
-	// We don't want to log sensitive data.
-	kv.AddString("token", "---")
-	return nil
-}
-
-type User struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
-	Auth Auth   `auth:"auth"`
-}
-
-func (u User) MarshalLog(kv zap.KeyValue) error {
-	kv.AddString("name", u.Name)
-	kv.AddInt("age", u.Age)
-	return kv.AddMarshaler("auth", u.Auth)
-}
-
-func ExampleMarshaler() {
-	jane := User{
-		Name: "Jane Doe",
-		Age:  42,
-		Auth: Auth{
-			ExpiresAt: time.Unix(0, 100),
-			Token:     "super secret",
-		},
+	// Wrap our structured logger to mimic the standard library's log.Logger.
+	// We also specify that we want all calls to the standard logger's Print
+	// family of methods to log at zap's Warn level.
+	stdLogger, err := zwrap.Standardize(zapLogger, zap.WarnLevel)
+	if err != nil {
+		panic(err.Error())
 	}
 
-	logger := zap.NewJSON()
-	// Stub time in tests.
-	logger.StubTime()
-	logger.Info("Successful login.", zap.Marshaler("user", jane))
+	// The wrapped logger has the usual Print, Panic, and Fatal families of
+	// methods.
+	stdLogger.Printf("Encountered %d errors.", 0)
 
 	// Output:
-	// {"msg":"Successful login.","level":"info","ts":0,"fields":{"user":{"name":"Jane Doe","age":42,"auth":{"expires_at":100,"token":"---"}}}}
+	// {"msg":"Encountered 0 errors.","level":"warn","ts":0,"fields":{}}
+}
+
+func Example_sample() {
+	sampledLogger := zwrap.Sample(zap.NewJSON(), time.Second, 1, 100)
+	// Stub the current time in tests.
+	sampledLogger.StubTime()
+
+	for i := 1; i < 110; i++ {
+		sampledLogger.With(zap.Int("n", i)).Error("Common failure.")
+	}
+
+	sampledLogger.Error("Unusual failure.")
+
+	// Output:
+	// {"msg":"Common failure.","level":"error","ts":0,"fields":{"n":1}}
+	// {"msg":"Common failure.","level":"error","ts":0,"fields":{"n":101}}
+	// {"msg":"Unusual failure.","level":"error","ts":0,"fields":{}}
 }

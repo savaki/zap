@@ -28,11 +28,6 @@ import (
 
 type fieldType int
 
-// A FieldCloser closes a nested field.
-type FieldCloser interface {
-	CloseField()
-}
-
 const (
 	unknownType fieldType = iota
 	boolType
@@ -41,6 +36,8 @@ const (
 	int64Type
 	stringType
 	marshalerType
+	objectType
+	stringerType
 )
 
 // A Field is a deferred marshaling operation used to add a key-value pair to
@@ -51,12 +48,17 @@ type Field struct {
 	fieldType fieldType
 	ival      int64
 	str       string
-	obj       Marshaler
+	obj       interface{}
 }
 
 // Bool constructs a Field with the given key and value.
 func Bool(key string, val bool) Field {
-	return Field{key: key, fieldType: boolType, ival: 1}
+	var ival int64
+	if val {
+		ival = 1
+	}
+
+	return Field{key: key, fieldType: boolType, ival: ival}
 }
 
 // Float64 constructs a Field with the given key and value. The floating-point
@@ -84,7 +86,7 @@ func String(key string, val string) Field {
 // Stringer constructs a Field with the given key and value. The value
 // is the result of the String method.
 func Stringer(key string, val fmt.Stringer) Field {
-	return Field{key: key, fieldType: stringType, str: val.String()}
+	return Field{key: key, fieldType: stringerType, obj: val}
 }
 
 // Time constructs a Field with the given key and value. It represents a
@@ -93,8 +95,10 @@ func Time(key string, val time.Time) Field {
 	return Int64(key, val.UnixNano())
 }
 
-// Err constructs a Field that stores err.Error() under the key "error".
-func Err(err error) Field {
+// Error constructs a Field that stores err.Error() under the key "error". This is
+// just a convenient shortcut for a common pattern - apart from saving a few
+// keystrokes, it's no different from using zap.String.
+func Error(err error) Field {
 	return String("error", err.Error())
 }
 
@@ -121,11 +125,21 @@ func Duration(key string, val time.Duration) Field {
 	return Int64(key, int64(val))
 }
 
-// Object constructs a field with the given key and zap.Marshaler. It provides a
-// flexible, but still type-safe and efficient, way to add user-defined types to
-// the logging context.
-func Object(key string, val Marshaler) Field {
+// Marshaler constructs a field with the given key and zap.LogMarshaler. It
+// provides a flexible, but still type-safe and efficient, way to add
+// user-defined types to the logging context.
+func Marshaler(key string, val LogMarshaler) Field {
 	return Field{key: key, fieldType: marshalerType, obj: val}
+}
+
+// Object constructs a field with the given key and an arbitrary object. It uses
+// an encoding-appropriate, reflection-based function to serialize nearly any
+// object into the logging context, but it's relatively slow and allocation-heavy.
+//
+// If encoding fails (e.g., trying to serialize a map[int]string to JSON), Object
+// includes the error message in the final log output.
+func Object(key string, val interface{}) Field {
+	return Field{key: key, fieldType: objectType, obj: val}
 }
 
 // Nest takes a key and a variadic number of Fields and creates a nested
@@ -146,11 +160,12 @@ func (f Field) addTo(kv KeyValue) error {
 		kv.AddInt64(f.key, f.ival)
 	case stringType:
 		kv.AddString(f.key, f.str)
+	case stringerType:
+		kv.AddString(f.key, f.obj.(fmt.Stringer).String())
 	case marshalerType:
-		closer := kv.Nest(f.key)
-		err := f.obj.MarshalLog(kv)
-		closer.CloseField()
-		return err
+		return kv.AddMarshaler(f.key, f.obj.(LogMarshaler))
+	case objectType:
+		kv.AddObject(f.key, f.obj)
 	default:
 		panic(fmt.Sprintf("unknown field type found: %v", f))
 	}

@@ -30,6 +30,10 @@ type KeyValue interface {
 	AddFloat64(string, float64)
 	AddInt(string, int)
 	AddInt64(string, int64)
+	AddMarshaler(string, LogMarshaler) error
+	// AddObject uses reflection to serialize arbitrary objects, so it's slow and
+	// allocation-heavy. Consider implementing the LogMarshaler interface instead.
+	AddObject(string, interface{})
 	AddString(string, string)
-	Nest(string) FieldCloser
+	Nest(string, func(KeyValue) error) error
 }

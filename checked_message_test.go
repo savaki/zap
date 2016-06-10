@@ -21,49 +21,38 @@
 package zap
 
 import (
-	"flag"
-	"io/ioutil"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestLevelFlag(t *testing.T) {
-	tests := []struct {
-		args      []string
-		wantLevel Level
-		wantErr   bool
-	}{
-		{
-			args:      nil,
-			wantLevel: InfoLevel,
-		},
-		{
-			args:    []string{"--level", "unknown"},
-			wantErr: true,
-		},
-		{
-			args:      []string{"--level", "error"},
-			wantLevel: ErrorLevel,
-		},
+func TestJSONLoggerCheck(t *testing.T) {
+	withJSONLogger(t, opts(InfoLevel), func(jl *jsonLogger, output func() []string) {
+		assert.False(t, jl.Check(DebugLevel, "Debug.").OK(), "Expected CheckedMessage to be not OK at disabled levels.")
+
+		cm := jl.Check(InfoLevel, "Info.")
+		require.True(t, cm.OK(), "Expected CheckedMessage to be OK at enabled levels.")
+		cm.Write(Int("magic", 42))
+		assert.Equal(
+			t,
+			`{"msg":"Info.","level":"info","ts":0,"fields":{"magic":42}}`,
+			output()[0],
+			"Unexpected output after writing a CheckedMessage.",
+		)
+	})
+}
+
+func TestCheckedMessageIsSingleUse(t *testing.T) {
+	expected := []string{
+		`{"msg":"Single-use.","level":"info","ts":0,"fields":{}}`,
+		`{"msg":"Shouldn't re-use a CheckedMessage.","level":"error","ts":0,"fields":{"original":"Single-use."}}`,
 	}
-
-	origCommandLine := flag.CommandLine
-	defer func() { flag.CommandLine = origCommandLine }()
-
-	for _, tt := range tests {
-		flag.CommandLine = flag.NewFlagSet("test", flag.ContinueOnError)
-		flag.CommandLine.SetOutput(ioutil.Discard)
-		level := LevelFlag("level", InfoLevel, "")
-
-		err := flag.CommandLine.Parse(tt.args)
-		if tt.wantErr {
-			assert.Error(t, err, "Parse(%v) should fail", tt.args)
-			continue
-		}
-
-		if assert.NoError(t, err, "Parse(%v) shouldn't fail", tt.args) {
-			assert.Equal(t, tt.wantLevel, *level, "Level mismatch")
-		}
-	}
+	withJSONLogger(t, nil, func(jl *jsonLogger, output func() []string) {
+		cm := jl.Check(InfoLevel, "Single-use.")
+		cm.Write() // ok
+		cm.Write() // first re-use logs error
+		cm.Write() // second re-use is silently ignored
+		assert.Equal(t, expected, output(), "Expected re-using a CheckedMessage to log an error.")
+	})
 }

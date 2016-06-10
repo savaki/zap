@@ -18,55 +18,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap_test
+package zbark_test
 
 import (
-	"time"
-
 	"github.com/uber-go/zap"
+	"github.com/uber-go/zap/zbark"
 )
 
-type Auth struct {
-	ExpiresAt time.Time `json:"expires_at"`
-	// Since we'll need to send the token to the browser, we include it in the
-	// struct's JSON representation.
-	Token string `json:"token"`
-}
+func Example() {
+	zapLogger := zap.NewJSON()
+	// Stub the current time in tests.
+	zapLogger.StubTime()
 
-func (a Auth) MarshalLog(kv zap.KeyValue) error {
-	kv.AddInt64("expires_at", a.ExpiresAt.UnixNano())
-	// We don't want to log sensitive data.
-	kv.AddString("token", "---")
-	return nil
-}
+	// Wrap our structured logger to mimic bark.Logger.
+	logger := zbark.Barkify(zapLogger)
 
-type User struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
-	Auth Auth   `auth:"auth"`
-}
-
-func (u User) MarshalLog(kv zap.KeyValue) error {
-	kv.AddString("name", u.Name)
-	kv.AddInt("age", u.Age)
-	return kv.AddMarshaler("auth", u.Auth)
-}
-
-func ExampleMarshaler() {
-	jane := User{
-		Name: "Jane Doe",
-		Age:  42,
-		Auth: Auth{
-			ExpiresAt: time.Unix(0, 100),
-			Token:     "super secret",
-		},
-	}
-
-	logger := zap.NewJSON()
-	// Stub time in tests.
-	logger.StubTime()
-	logger.Info("Successful login.", zap.Marshaler("user", jane))
+	// The wrapped logger has bark's usual fluent API.
+	logger.WithField("errors", 0).Infof("%v accepts arbitrary types.", "Bark")
 
 	// Output:
-	// {"msg":"Successful login.","level":"info","ts":0,"fields":{"user":{"name":"Jane Doe","age":42,"auth":{"expires_at":100,"token":"---"}}}}
+	// {"msg":"Bark accepts arbitrary types.","level":"info","ts":0,"fields":{"errors":0}}
 }

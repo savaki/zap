@@ -18,39 +18,5 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package benchmarks
-
-import (
-	"io/ioutil"
-	"log"
-	"testing"
-
-	"github.com/uber-go/zap"
-	"github.com/uber-go/zap/zwrap"
-)
-
-func BenchmarkStandardLibraryWithoutFields(b *testing.B) {
-	logger := log.New(ioutil.Discard, "", log.LstdFlags)
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			logger.Println("Go fast.")
-		}
-	})
-}
-
-func BenchmarkZapStandardizeWithoutFields(b *testing.B) {
-	logger, err := zwrap.Standardize(
-		zap.NewJSON(zap.AllLevel, zap.Output(zap.Discard)),
-		zap.InfoLevel,
-	)
-	if err != nil {
-		panic("Failed to Standardize a zap.Logger.")
-	}
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			logger.Println("Go fast.")
-		}
-	})
-}
+// Package spywrite provides various I/O implementations with known errors.
+package spywrite

@@ -18,55 +18,36 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package zap_test
+// Package testutils provides some simple testing helpers (most of which aren't
+// specifically logging-related).
+package testutils
 
 import (
+	"log"
+	"os"
+	"strconv"
 	"time"
-
-	"github.com/uber-go/zap"
 )
 
-type Auth struct {
-	ExpiresAt time.Time `json:"expires_at"`
-	// Since we'll need to send the token to the browser, we include it in the
-	// struct's JSON representation.
-	Token string `json:"token"`
+var _timeoutScale = 1.0
+
+// Timeout scales the provided duration by $TEST_TIMEOUT_SCALE.
+func Timeout(base time.Duration) time.Duration {
+	return time.Duration(float64(base) * _timeoutScale)
 }
 
-func (a Auth) MarshalLog(kv zap.KeyValue) error {
-	kv.AddInt64("expires_at", a.ExpiresAt.UnixNano())
-	// We don't want to log sensitive data.
-	kv.AddString("token", "---")
-	return nil
+// Sleep scales the sleep duration by $TEST_TIMEOUT_SCALE.
+func Sleep(base time.Duration) {
+	time.Sleep(Timeout(base))
 }
 
-type User struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
-	Auth Auth   `auth:"auth"`
-}
-
-func (u User) MarshalLog(kv zap.KeyValue) error {
-	kv.AddString("name", u.Name)
-	kv.AddInt("age", u.Age)
-	return kv.AddMarshaler("auth", u.Auth)
-}
-
-func ExampleMarshaler() {
-	jane := User{
-		Name: "Jane Doe",
-		Age:  42,
-		Auth: Auth{
-			ExpiresAt: time.Unix(0, 100),
-			Token:     "super secret",
-		},
+func init() {
+	if v := os.Getenv("TEST_TIMEOUT_SCALE"); v != "" {
+		fv, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			panic(err)
+		}
+		_timeoutScale = fv
+		log.Printf("Scaling timeouts by %vx.\n", _timeoutScale)
 	}
-
-	logger := zap.NewJSON()
-	// Stub time in tests.
-	logger.StubTime()
-	logger.Info("Successful login.", zap.Marshaler("user", jane))
-
-	// Output:
-	// {"msg":"Successful login.","level":"info","ts":0,"fields":{"user":{"name":"Jane Doe","age":42,"auth":{"expires_at":100,"token":"---"}}}}
 }

@@ -22,14 +22,17 @@ package zap
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/uber-common/zap/spy"
+	"github.com/uber-go/zap/spywrite"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func assertJSON(t *testing.T, expected string, enc *jsonEncoder) {
@@ -41,6 +44,12 @@ func withJSONEncoder(f func(*jsonEncoder)) {
 	enc.AddString("foo", "bar")
 	f(enc)
 	enc.Free()
+}
+
+type noJSON struct{}
+
+func (nj noJSON) MarshalJSON() ([]byte, error) {
+	return nil, errors.New("no")
 }
 
 func TestJSONAddString(t *testing.T) {
@@ -100,6 +109,19 @@ func TestJSONAddFloat64(t *testing.T) {
 		enc.truncate()
 		enc.AddFloat64(`foo\`, 1.0)
 		assertJSON(t, `"foo\\":1`, enc)
+
+		// Test floats that can't be represented in JSON.
+		enc.truncate()
+		enc.AddFloat64(`foo`, math.NaN())
+		assertJSON(t, `"foo":"NaN"`, enc)
+
+		enc.truncate()
+		enc.AddFloat64(`foo`, math.Inf(1))
+		assertJSON(t, `"foo":"+Inf"`, enc)
+
+		enc.truncate()
+		enc.AddFloat64(`foo`, math.Inf(-1))
+		assertJSON(t, `"foo":"-Inf"`, enc)
 	})
 }
 
@@ -129,12 +151,45 @@ func TestJSONWriteMessage(t *testing.T) {
 
 func TestJSONNest(t *testing.T) {
 	withJSONEncoder(func(enc *jsonEncoder) {
-		closer := enc.Nest("nested")
-		enc.AddString("sub-foo", "sub-bar")
-		closer.CloseField()
+		err := enc.Nest("nested", func(kv KeyValue) error {
+			kv.AddString("sub-foo", "sub-bar")
+			return nil
+		})
+		require.NoError(t, err, "Unexpected error using Nest.")
 		enc.AddString("baz", "bing")
 
 		assertJSON(t, `"foo":"bar","nested":{"sub-foo":"sub-bar"},"baz":"bing"`, enc)
+	})
+}
+
+type loggable struct{}
+
+func (l loggable) MarshalLog(kv KeyValue) error {
+	kv.AddString("loggable", "yes")
+	return nil
+}
+
+func TestJSONAddMarshaler(t *testing.T) {
+	withJSONEncoder(func(enc *jsonEncoder) {
+		err := enc.AddMarshaler("nested", loggable{})
+		require.NoError(t, err, "Unexpected error using AddMarshaler.")
+		assertJSON(t, `"foo":"bar","nested":{"loggable":"yes"}`, enc)
+	})
+}
+
+func TestJSONAddObject(t *testing.T) {
+	withJSONEncoder(func(enc *jsonEncoder) {
+		enc.AddObject("nested", map[string]string{"loggable": "yes"})
+		assertJSON(t, `"foo":"bar","nested":{"loggable":"yes"}`, enc)
+	})
+
+	withJSONEncoder(func(enc *jsonEncoder) {
+		enc.AddObject("nested", noJSON{})
+		assertJSON(
+			t,
+			`"foo":"bar","nested":"json: error calling MarshalJSON for type zap.noJSON: no"`,
+			enc,
+		)
 	})
 }
 
@@ -157,8 +212,8 @@ func TestJSONWriteMessageFailure(t *testing.T) {
 			sink io.Writer
 			msg  string
 		}{
-			{spy.FailWriter{}, "Expected an error when writing to sink fails."},
-			{spy.ShortWriter{}, "Expected an error on partial writes to sink."},
+			{spywrite.FailWriter{}, "Expected an error when writing to sink fails."},
+			{spywrite.ShortWriter{}, "Expected an error on partial writes to sink."},
 		}
 		for _, tt := range tests {
 			err := enc.WriteMessage(tt.sink, "info", "hello", time.Unix(0, 0), defaultAppendFunc)
@@ -175,7 +230,6 @@ func TestJSONJSONEscaping(t *testing.T) {
 		// Special-cased characters.
 		`"`: `\"`,
 		`\`: `\\`,
-		`/`: `\/`,
 		// Special-cased characters within everyday ASCII.
 		`foo"foo`: `foo\"foo`,
 		"foo\n":   `foo\n`,

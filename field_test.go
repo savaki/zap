@@ -51,6 +51,15 @@ func assertFieldJSON(t testing.TB, expected string, field Field) {
 		"Unexpected JSON output after applying field %+v.", field)
 }
 
+func assertNotEqualFieldJSON(t testing.TB, expected string, field Field) {
+	enc := newJSONEncoder()
+	defer enc.Free()
+
+	field.addTo(enc)
+	assert.NotEqual(t, expected, string(enc.bytes),
+		"Unexpected JSON output after applying field %+v.", field)
+}
+
 func assertCanBeReused(t testing.TB, field Field) {
 	var wg sync.WaitGroup
 
@@ -72,9 +81,19 @@ func assertCanBeReused(t testing.TB, field Field) {
 	wg.Wait()
 }
 
-func TestBoolField(t *testing.T) {
+func TestTrueBoolField(t *testing.T) {
 	assertFieldJSON(t, `"foo":true`, Bool("foo", true))
 	assertCanBeReused(t, Bool("foo", true))
+}
+
+func TestFalseBoolField(t *testing.T) {
+	assertFieldJSON(t, `"bar":false`, Bool("bar", false))
+	assertCanBeReused(t, Bool("bar", false))
+}
+
+func TestUnlikeBoolField(t *testing.T) {
+	assertNotEqualFieldJSON(t, `"foo":true`, Bool("foo", false))
+	assertNotEqualFieldJSON(t, `"bar":false`, Bool("bar", true))
 }
 
 func TestFloat64Field(t *testing.T) {
@@ -109,8 +128,8 @@ func TestTimeField(t *testing.T) {
 }
 
 func TestErrField(t *testing.T) {
-	assertFieldJSON(t, `"error":"fail"`, Err(errors.New("fail")))
-	assertCanBeReused(t, Err(errors.New("fail")))
+	assertFieldJSON(t, `"error":"fail"`, Error(errors.New("fail")))
+	assertCanBeReused(t, Error(errors.New("fail")))
 }
 
 func TestDurationField(t *testing.T) {
@@ -118,12 +137,17 @@ func TestDurationField(t *testing.T) {
 	assertCanBeReused(t, Duration("foo", time.Nanosecond))
 }
 
-func TestObjectField(t *testing.T) {
+func TestMarshalerField(t *testing.T) {
 	// Marshaling the user failed, so we expect an empty object.
-	assertFieldJSON(t, `"foo":{}`, Object("foo", fakeUser{"fail"}))
+	assertFieldJSON(t, `"foo":{}`, Marshaler("foo", fakeUser{"fail"}))
 
-	assertFieldJSON(t, `"foo":{"name":"phil"}`, Object("foo", fakeUser{"phil"}))
-	assertCanBeReused(t, Object("foo", fakeUser{"phil"}))
+	assertFieldJSON(t, `"foo":{"name":"phil"}`, Marshaler("foo", fakeUser{"phil"}))
+	assertCanBeReused(t, Marshaler("foo", fakeUser{"phil"}))
+}
+
+func TestObjectField(t *testing.T) {
+	assertFieldJSON(t, `"foo":[5,6]`, Object("foo", []int{5, 6}))
+	assertCanBeReused(t, Object("foo", []int{5, 6}))
 }
 
 func TestNestField(t *testing.T) {
@@ -132,7 +156,7 @@ func TestNestField(t *testing.T) {
 	)
 	// Marshaling the user failed, so we expect an empty object.
 	assertFieldJSON(t, `"foo":{"user":{}}`,
-		Nest("foo", Object("user", fakeUser{"fail"})),
+		Nest("foo", Marshaler("user", fakeUser{"fail"})),
 	)
 
 	nest := Nest("foo", String("name", "phil"), Int("age", 42))

@@ -21,8 +21,10 @@
 package zap
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -103,22 +105,45 @@ func (enc *jsonEncoder) AddInt64(key string, val int64) {
 // grade-school notation otherwise).
 func (enc *jsonEncoder) AddFloat64(key string, val float64) {
 	enc.addKey(key)
-	enc.bytes = strconv.AppendFloat(enc.bytes, val, 'g', -1, 64)
+	switch {
+	case math.IsNaN(val):
+		enc.bytes = append(enc.bytes, `"NaN"`...)
+	case math.IsInf(val, 1):
+		enc.bytes = append(enc.bytes, `"+Inf"`...)
+	case math.IsInf(val, -1):
+		enc.bytes = append(enc.bytes, `"-Inf"`...)
+	default:
+		enc.bytes = strconv.AppendFloat(enc.bytes, val, 'g', -1, 64)
+	}
 }
 
-// Nest starts a nested object and returns a function that closes the nested
-// object. Until the returned function is called, calls to AddString and friends
-// operate on the nested namespace.
-//
-// Failing to use the returned FieldCloser will result in invalid JSON output.
-func (enc *jsonEncoder) Nest(key string) FieldCloser {
+// Nest allows the caller to populate a nested object under the provided key.
+func (enc *jsonEncoder) Nest(key string, f func(KeyValue) error) error {
 	enc.addKey(key)
 	enc.bytes = append(enc.bytes, '{')
-	return enc
+	err := f(enc)
+	enc.bytes = append(enc.bytes, '}')
+	return err
 }
 
-func (enc *jsonEncoder) CloseField() {
-	enc.bytes = append(enc.bytes, '}')
+// AddMarshaler adds a LogMarshaler to the encoder's fields.
+//
+// TODO: Encode the error into the message instead of returning.
+func (enc *jsonEncoder) AddMarshaler(key string, obj LogMarshaler) error {
+	return enc.Nest(key, func(kv KeyValue) error {
+		return obj.MarshalLog(kv)
+	})
+}
+
+// AddObject uses reflection to add an arbitrary object to the logging context.
+func (enc *jsonEncoder) AddObject(key string, obj interface{}) {
+	marshaled, err := json.Marshal(obj)
+	if err != nil {
+		enc.AddString(key, err.Error())
+		return
+	}
+	enc.addKey(key)
+	enc.bytes = append(enc.bytes, marshaled...)
 }
 
 // Clone copies the current encoder, including any data already encoded.
@@ -187,12 +212,12 @@ func (enc *jsonEncoder) safeAddString(s string) {
 	for i := 0; i < len(s); {
 		if b := s[i]; b < utf8.RuneSelf {
 			i++
-			if 0x20 <= b && b != '\\' && b != '/' && b != '"' {
+			if 0x20 <= b && b != '\\' && b != '"' {
 				enc.bytes = append(enc.bytes, b)
 				continue
 			}
 			switch b {
-			case '\\', '/', '"':
+			case '\\', '"':
 				enc.bytes = append(enc.bytes, '\\', b)
 			case '\n':
 				enc.bytes = append(enc.bytes, '\\', 'n')

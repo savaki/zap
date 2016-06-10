@@ -25,30 +25,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/uber-common/zap"
+	"github.com/uber-go/zap"
 )
 
 type user struct {
-	name      string
-	email     string
-	createdAt time.Time
+	Name      string
+	Email     string
+	CreatedAt time.Time
 }
 
 func (u user) MarshalLog(kv zap.KeyValue) error {
-	kv.AddString("name", u.name)
-	kv.AddString("email", u.email)
-	kv.AddInt64("created_at", u.createdAt.UnixNano())
+	kv.AddString("name", u.Name)
+	kv.AddString("email", u.Email)
+	kv.AddInt64("created_at", u.CreatedAt.UnixNano())
 	return nil
 }
 
 var _jane = user{
-	name:      "Jane Doe",
-	email:     "jane@test.com",
-	createdAt: time.Date(1980, 1, 1, 12, 0, 0, 0, time.UTC),
+	Name:      "Jane Doe",
+	Email:     "jane@test.com",
+	CreatedAt: time.Date(1980, 1, 1, 12, 0, 0, 0, time.UTC),
 }
 
 func withBenchedLogger(b *testing.B, f func(zap.Logger)) {
-	logger := zap.NewJSON(zap.All, zap.Output(zap.Discard))
+	logger := zap.NewJSON(zap.AllLevel, zap.Output(zap.Discard))
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -95,7 +95,7 @@ func BenchmarkStringField(b *testing.B) {
 
 func BenchmarkStringerField(b *testing.B) {
 	withBenchedLogger(b, func(log zap.Logger) {
-		log.Info("Level.", zap.Stringer("foo", zap.Info))
+		log.Info("Level.", zap.Stringer("foo", zap.InfoLevel))
 	})
 }
 
@@ -115,7 +115,7 @@ func BenchmarkDurationField(b *testing.B) {
 func BenchmarkErrorField(b *testing.B) {
 	err := errors.New("egad!")
 	withBenchedLogger(b, func(log zap.Logger) {
-		log.Info("Error.", zap.Err(err))
+		log.Info("Error.", zap.Error(err))
 	})
 }
 
@@ -125,16 +125,17 @@ func BenchmarkStackField(b *testing.B) {
 	})
 }
 
-func BenchmarkObjectField(b *testing.B) {
+func BenchmarkMarshalerField(b *testing.B) {
 	// Expect an extra allocation here, since casting the user struct to the
 	// zap.Marshaler interface costs an alloc.
-	u := user{
-		name:      "Jane Example",
-		email:     "jane@example.com",
-		createdAt: time.Unix(0, 0),
-	}
 	withBenchedLogger(b, func(log zap.Logger) {
-		log.Info("Arbitrary zap.Marshaler.", zap.Object("user", u))
+		log.Info("Arbitrary zap.LogMarshaler.", zap.Marshaler("user", _jane))
+	})
+}
+
+func BenchmarkObjectField(b *testing.B) {
+	withBenchedLogger(b, func(log zap.Logger) {
+		log.Info("Reflection-based serialization.", zap.Object("user", _jane))
 	})
 }
 
@@ -170,7 +171,7 @@ func Benchmark10Fields(b *testing.B) {
 
 func Benchmark100Fields(b *testing.B) {
 	const batchSize = 50
-	logger := zap.NewJSON(zap.All, zap.Output(zap.Discard))
+	logger := zap.NewJSON(zap.AllLevel, zap.Output(zap.Discard))
 
 	// Don't include allocating these helper slices in the benchmark. Since
 	// access to them isn't synchronized, we can't run the benchmark in

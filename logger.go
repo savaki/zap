@@ -24,9 +24,13 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync/atomic"
 	"time"
+
+	"github.com/uber-go/atomic"
 )
+
+// For tests.
+var _exit = os.Exit
 
 // A Logger enables leveled, structured logging. All methods are safe for
 // concurrent use.
@@ -36,7 +40,7 @@ type Logger interface {
 	// Check the minimum enabled log level.
 	Level() Level
 	// Change the level of this logger, as well as all its ancestors and
-	// descendants. This makes makes it easy to change the log level at runtime
+	// descendants. This makes it easy to change the log level at runtime
 	// without restarting your application.
 	SetLevel(Level)
 	// Create a child logger, and optionally add some context to that logger.
@@ -44,25 +48,40 @@ type Logger interface {
 	// StubTime stops the logger from including the current time in each
 	// message. Instead, it always reports the time as Unix epoch 0. (This is
 	// useful in tests and examples.)
+	//
+	// TODO: remove this kludge in favor of a more comprehensive message-formatting
+	// option.
 	StubTime()
+
+	// Check returns a CheckedMessage if logging a message at the specified level
+	// is enabled. It's a completely optional optimization; in high-performance
+	// applications, Check can help avoid allocating a slice to hold fields.
+	//
+	// See CheckedMessage for an example.
+	Check(Level, string) *CheckedMessage
 
 	// Log a message at the given level. Messages include any context that's
 	// accumulated on the logger, as well as any fields added at the log site.
+	Log(Level, string, ...Field)
 	Debug(string, ...Field)
 	Info(string, ...Field)
 	Warn(string, ...Field)
 	Error(string, ...Field)
 	Panic(string, ...Field)
 	Fatal(string, ...Field)
+	// If the logger is in development mode (via the Development option), DFatal
+	// logs at the Fatal level. Otherwise, it logs at the Error level.
+	DFatal(string, ...Field)
 }
 
 type jsonLogger struct {
-	level       *int32 // atomic
+	level       *atomic.Int32
 	enc         encoder
 	hooks       []hook
 	errW        WriteSyncer
 	w           WriteSyncer
 	alwaysEpoch bool
+	development bool
 	appendFunc  AppendFunc
 }
 
@@ -82,10 +101,10 @@ func defaultAppendFunc(data []byte, ts time.Time) []byte {
 // Options can change the log level, the output location, or the initial
 // fields that should be added as context.
 func NewJSON(options ...Option) Logger {
-	defaultLevel := int32(Info)
+	defaultLevel := atomic.NewInt32(int32(InfoLevel))
 	jl := &jsonLogger{
 		enc:        newJSONEncoder(),
-		level:      &defaultLevel,
+		level:      defaultLevel,
 		errW:       os.Stderr,
 		w:          os.Stdout,
 		appendFunc: defaultAppendFunc,
@@ -101,11 +120,11 @@ func NewJSON(options ...Option) Logger {
 }
 
 func (jl *jsonLogger) Level() Level {
-	return Level(atomic.LoadInt32(jl.level))
+	return Level(jl.level.Load())
 }
 
 func (jl *jsonLogger) SetLevel(lvl Level) {
-	atomic.StoreInt32(jl.level, int32(lvl))
+	jl.level.Store(int32(lvl))
 }
 
 func (jl *jsonLogger) Enabled(lvl Level) bool {
@@ -113,9 +132,6 @@ func (jl *jsonLogger) Enabled(lvl Level) bool {
 }
 
 func (jl *jsonLogger) With(fields ...Field) Logger {
-	if len(fields) == 0 {
-		return jl
-	}
 	clone := &jsonLogger{
 		level:       jl.level,
 		enc:         jl.enc.Clone(),
@@ -124,6 +140,7 @@ func (jl *jsonLogger) With(fields ...Field) Logger {
 		errW:        jl.errW,
 		alwaysEpoch: jl.alwaysEpoch,
 		appendFunc:  jl.appendFunc,
+		development: jl.development,
 	}
 	if err := clone.enc.AddFields(fields); err != nil {
 		jl.internalError(err.Error())
@@ -135,30 +152,55 @@ func (jl *jsonLogger) StubTime() {
 	jl.alwaysEpoch = true
 }
 
+func (jl *jsonLogger) Check(lvl Level, msg string) *CheckedMessage {
+	if !jl.Enabled(lvl) {
+		return nil
+	}
+	return NewCheckedMessage(jl, lvl, msg)
+}
+
+func (jl *jsonLogger) Log(lvl Level, msg string, fields ...Field) {
+	switch lvl {
+	case PanicLevel:
+		jl.Panic(msg, fields...)
+	case FatalLevel:
+		jl.Fatal(msg, fields...)
+	default:
+		jl.log(lvl, msg, fields)
+	}
+}
+
 func (jl *jsonLogger) Debug(msg string, fields ...Field) {
-	jl.log(Debug, msg, fields)
+	jl.log(DebugLevel, msg, fields)
 }
 
 func (jl *jsonLogger) Info(msg string, fields ...Field) {
-	jl.log(Info, msg, fields)
+	jl.log(InfoLevel, msg, fields)
 }
 
 func (jl *jsonLogger) Warn(msg string, fields ...Field) {
-	jl.log(Warn, msg, fields)
+	jl.log(WarnLevel, msg, fields)
 }
 
 func (jl *jsonLogger) Error(msg string, fields ...Field) {
-	jl.log(Error, msg, fields)
+	jl.log(ErrorLevel, msg, fields)
 }
 
 func (jl *jsonLogger) Panic(msg string, fields ...Field) {
-	jl.log(Panic, msg, fields)
+	jl.log(PanicLevel, msg, fields)
 	panic(msg)
 }
 
 func (jl *jsonLogger) Fatal(msg string, fields ...Field) {
-	jl.log(Fatal, msg, fields)
-	os.Exit(1)
+	jl.log(FatalLevel, msg, fields)
+	_exit(1)
+}
+
+func (jl *jsonLogger) DFatal(msg string, fields ...Field) {
+	if jl.development {
+		jl.Fatal(msg, fields...)
+	}
+	jl.Error(msg, fields...)
 }
 
 func (jl *jsonLogger) log(lvl Level, msg string, fields []Field) {
@@ -188,7 +230,7 @@ func (jl *jsonLogger) log(lvl Level, msg string, fields []Field) {
 	}
 	temp.Free()
 
-	if lvl > Error {
+	if lvl > ErrorLevel {
 		// Sync on Panic and Fatal, since they may crash the program.
 		jl.w.Sync()
 	}
